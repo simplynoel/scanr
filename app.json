@@ -1,24 +1,44 @@
 {
   "expo": {
-    "name": "studi",
-    "slug": "studi",
+    "name": "scanr",
+    "slug": "scanr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/main-logo.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/main-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#191919"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+        "backgroundColor": "#191919",
+        "foregroundImage": "./assets/main-logo.png"
+      },
+      "package": "com.noelpadrigon.scanr"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/logo.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow scanr to access your camera to scan QR codes.",
+          "microphonePermission": "Allow scanr to access your microphone to record videos.",
+          "recordAudioAndroid": true
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "35ac7c0e-dd77-4596-b012-c97969c2fce8"
+      }
     }
   }
 }
