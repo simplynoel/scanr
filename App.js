@@ -3,6 +3,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform, Alert, Animated, ScrollView, TouchableOpacity, TextInput, Image, ToastAndroid, Modal, StatusBar, Linking, SafeAreaView } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Try to use react-native-safe-area-context when available; otherwise fall back.
 let SafeAreaProvider = ({ children }) => children;
@@ -29,17 +30,17 @@ import HistoryModal from './components/HistoryModal';
 import WeightSlider from './components/WeightSlider';
 import styles, { COLOR_PRESETS, BG, TEXT_MUTED, SURFACE, BORDER, ACCENT, SURFACE2, TEXT_PRIMARY, ERROR_COLOR, DARK_GREY } from './styles';
 
-// --- Minimal local helpers (placeholders to keep app running)
+// --- Production Disk Storage Keys ---
+const SCANS_STORAGE_KEY = '@qr_reader_scans_v1';
+const GENERATES_STORAGE_KEY = '@qr_reader_generates_v1';
+
+// --- Local Sync Helpers ---
+const _PHRASES = ['Crunching bits...', 'Synthesizing code...', 'Initializing quantum compilation...'];
+function getRandomPhrase() { return _PHRASES[Math.floor(Math.random() * _PHRASES.length)]; }
+
 function isURL(str) {
   return typeof str === 'string' && /^(https?:)?\/\//i.test(str);
 }
-function getDB() { /* placeholder DB init */ }
-const _PHRASES = ['Crunching bits...', 'Synthesizing code...', 'Initializing quantum compilation...'];
-function getRandomPhrase() { return _PHRASES[Math.floor(Math.random() * _PHRASES.length)]; }
-function insertGenerate() { /* noop placeholder */ }
-function insertScan() { /* noop placeholder */ }
-function fetchGenerates() { return []; }
-function fetchScans() { return []; }
 
 // ─── Cute Mascot Component ───────────────────────────────────────────────────
 function CuteMascot({ state }) {
@@ -92,8 +93,19 @@ function ScanTab() {
   const cameraRef = useRef(null);
   const CameraComponent = CameraView || Camera;
 
+  // Real Persistent Scan History Bootstrap Lifecycle
   useEffect(() => {
-    setScanHistory(fetchScans());
+    const loadScanLogs = async () => {
+      try {
+        const rawJson = await AsyncStorage.getItem(SCANS_STORAGE_KEY);
+        if (rawJson) {
+          setScanHistory(JSON.parse(rawJson));
+        }
+      } catch (e) {
+        console.error("Failed to fetch scan logs from persistence layer:", e);
+      }
+    };
+    loadScanLogs();
   }, []);
 
   useEffect(() => {
@@ -114,7 +126,7 @@ function ScanTab() {
     };
 
     ask();
-  }, []);
+  }, [CameraComponent]);
 
   const requestPermission = async () => {
     try {
@@ -137,7 +149,7 @@ function ScanTab() {
     setHistoryVisible(false);
   };
 
-  const handleBarCodeScanned = ({ type, data }) => {
+  const handleBarCodeScanned = async ({ type, data }) => {
     if (!scanning) return;
     setScanning(false);
 
@@ -148,24 +160,27 @@ function ScanTab() {
     setIsDuplicateScan(isDuplicate);
     setCurrentScanData(data);
 
+    let nextHistoryArray = [...scanHistory];
+
     if (isDuplicate) {
-      // Bypasses database writing entirely. Hoists the matched entry directly to index 0.
-      setScanHistory((prevHistory) => {
-        const updatedHistory = [...prevHistory];
-        const [duplicateItem] = updatedHistory.splice(existingIndex, 1);
-        
-        const bumpedItem = {
-          ...duplicateItem,
-          scanned_at: new Date().toISOString(),
-        };
-        return [bumpedItem, ...updatedHistory];
-      });
+      // Hoists the matched entry directly to index 0 and bumps timestamp
+      const [duplicateItem] = nextHistoryArray.splice(existingIndex, 1);
+      const bumpedItem = {
+        ...duplicateItem,
+        scanned_at: new Date().toISOString(),
+      };
+      nextHistoryArray = [bumpedItem, ...nextHistoryArray];
     } else {
       const newItem = { id: Date.now().toString(), data, scanned_at: new Date().toISOString() };
-      try {
-        insertScan(newItem);
-      } catch (e) { /* swallow */ }
-      setScanHistory((s) => [newItem, ...s]);
+      nextHistoryArray = [newItem, ...nextHistoryArray];
+    }
+
+    // Simultaneously commit alterations securely to device disk memory
+    try {
+      setScanHistory(nextHistoryArray);
+      await AsyncStorage.setItem(SCANS_STORAGE_KEY, JSON.stringify(nextHistoryArray));
+    } catch (e) {
+      console.error("Storage failed:", e);
     }
 
     setResultModalVisible(true);
@@ -358,8 +373,19 @@ function GenerateTab() {
 
   const viewShotRef = useRef(null);
 
+  // Real Persistent Generation Matrix Bootstrap Lifecycle
   useEffect(() => {
-    setGenerateHistory(fetchGenerates());
+    const loadGenerationLogs = async () => {
+      try {
+        const rawJson = await AsyncStorage.getItem(GENERATES_STORAGE_KEY);
+        if (rawJson) {
+          setGenerateHistory(JSON.parse(rawJson));
+        }
+      } catch (e) {
+        console.error("Failed to load historical generation arrays:", e);
+      }
+    };
+    loadGenerationLogs();
   }, []);
 
   useEffect(() => {
@@ -373,7 +399,7 @@ function GenerateTab() {
     } else {
       skeletonOpacity.setValue(0.3);
     }
-  }, [popupVisible, isCreating]);
+  }, [popupVisible, isCreating, skeletonOpacity]);
 
   const handleGenerate = () => {
     const text = inputText.trim();
@@ -387,13 +413,18 @@ function GenerateTab() {
     setIsCreating(true);
     setPopupVisible(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         setDisplayQR(text);
-        insertGenerate(text);
-        setGenerateHistory(fetchGenerates());
+        
+        // Add new record into local list logic
+        const newItem = { id: Date.now().toString(), data: text, created_at: new Date().toISOString() };
+        const updatedArray = [newItem, ...generateHistory];
+        
+        setGenerateHistory(updatedArray);
+        await AsyncStorage.setItem(GENERATES_STORAGE_KEY, JSON.stringify(updatedArray));
+        
         setIsCreating(false);
-
         setInputText('');
       } catch (error) {
         console.error(error);
@@ -800,6 +831,9 @@ function GenerateTab() {
     </View>
   );
 }
+
+// ─── Export Tab Controllers ──────────────────────────────────────────────────
+export { ScanTab, GenerateTab };
 
 // --- Dynamic Styling Extensions Sheet ---
 const localStyles = StyleSheet.create({
